@@ -1,0 +1,78 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Algorand NodeKit (Shell Script) on AWS
+
+Parameters:
+  KeyName:
+    Description: EC2 KeyPair Name
+    Type: AWS::EC2::KeyPair::KeyName
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+
+Resources:
+  NodeSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Algorand Node Security Group
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 4160
+          ToPort: 4160
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+
+  AlgorandNode:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: c6i.2xlarge
+      ImageId: ami-0c55b159cbfafe1f0 # Amazon Linux 2
+      KeyName: !Ref KeyName
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 100
+            VolumeType: gp3
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          AssociatePublicIpAddress: true
+          SubnetId: !Ref SubnetId
+          GroupSet:
+            - !GetAtt NodeSecurityGroup.GroupId
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          # Update system and install requirements
+          yum update -y
+          yum install -y wget
+
+          # Install NodeKit using official script
+          wget -qO- https://nodekit.run/install.sh | bash
+
+          # Configure as participation node
+          algokit node configure \
+            --network mainnet \
+            --mode participation \
+            --non-archival
+
+          # Enable and start service
+          systemctl enable algorand-nodekit
+          systemctl start algorand-nodekit
+
+          # Auto-restart on failure
+          echo "Restart=on-failure" >> /etc/systemd/system/algorand-nodekit.service
+          systemctl daemon-reload
+
+Outputs:
+  InstanceId:
+    Value: !Ref AlgorandNode
+  PublicIP:
+    Value: !GetAtt AlgorandNode.PublicIp
