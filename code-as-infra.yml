@@ -2,6 +2,10 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: Algorand NodeKit (Shell Script) on AWS
 
 Parameters:
+  StackName:
+    Description: Name of the stack
+    Type: String
+    Default: algorand-nodekit-aws-cloudformation
   KeyName:
     Description: EC2 KeyPair Name
     Type: AWS::EC2::KeyPair::KeyName
@@ -29,17 +33,28 @@ Resources:
           FromPort: 8080
           ToPort: 8080
           CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 9100 # Metrics port
+          ToPort: 9100
+          CidrIp: 0.0.0.0/0 # Restrict to monitoring IP if needed
 
   AlgorandNode:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: c5.2xlarge # 8 vCPUs, 16 GB RAM
-      ImageId: ami-0f214d1b3d031dc53 # Amazon Linux 2 AMI (HVM) - Kernel 5.10, SSD Volume Type
+      ImageId: ami-0c614dee691cbbf37 # Amazon Linux 2023 AMI
       KeyName: !Ref KeyName
+      Tags:
+        - Key: Name
+          Value: Algorand-Participation-Node
       BlockDeviceMappings:
-        - DeviceName: /dev/xvda
+        - DeviceName: /dev/xvda # Root volume
           Ebs:
             VolumeSize: 100
+            VolumeType: gp3
+        - DeviceName: /dev/sdf # Data volume (adjust device name based on AMI)
+          Ebs:
+            VolumeSize: 500
             VolumeType: gp3
       NetworkInterfaces:
         - DeviceIndex: 0
@@ -51,25 +66,8 @@ Resources:
         Fn::Base64: |
           #!/bin/bash
           # Update system and install requirements
-          yum update -y
-          yum install -y wget
-
-          # Install NodeKit using official script
-          wget -qO- https://nodekit.run/install.sh | bash
-
-          # Configure as participation node
-          algokit node configure \
-            --network mainnet \
-            --mode participation \
-            --non-archival
-
-          # Enable and start service
-          systemctl enable algorand-nodekit
-          systemctl start algorand-nodekit
-
-          # Auto-restart on failure
-          echo "Restart=on-failure" >> /etc/systemd/system/algorand-nodekit.service
-          systemctl daemon-reload
+          dnf update -y
+          dnf install -y wget
 
 Outputs:
   InstanceId:
